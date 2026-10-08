@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>probe</title>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+  // P0 probe. Asks the same questions the studio asks before an export
+  // (videoRender.ts: getFirstEncodableVideoCodec(['avc','vp9','vp8']) and AAC for MP4),
+  // then makes a real 2 s MP4 with audio and downloads it, so main can save it and
+  // we can open it in QuickTime / Windows Media Player.
+  import {
+    getFirstEncodableVideoCodec, getFirstEncodableAudioCodec, Output, Mp4OutputFormat,
+    BufferTarget, CanvasSource, AudioBufferSource, QUALITY_HIGH,
+  } from './mediabunny.min.mjs'
+
+  const report = { ua: navigator.userAgent, video: {}, audio: {}, recorder: {}, file: null, error: null }
+  try {
+    for (const [w, h] of [[1080, 1920], [1920, 1080], [720, 1280], [1280, 720]])
+      report.video[`${w}x${h}`] = await getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8'], { width: w, height: h })
+    for (const [ch, sr] of [[1, 44100], [2, 44100], [1, 48000], [2, 48000]])
+      report.audio[`aac ${ch}ch ${sr}`] = await getFirstEncodableAudioCodec(['aac'], { numberOfChannels: ch, sampleRate: sr })
+    // talk.ts picks the first of these that MediaRecorder supports.
+    for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg;codecs=opus'])
+      report.recorder[m] = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)
+
+    const codec = report.video['1080x1920']
+    if (codec === 'avc') {
+      const canvas = document.getElementById('c')
+      const g = canvas.getContext('2d')
+      const target = new BufferTarget()
+      const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target })
+      const source = new CanvasSource(canvas, { codec: 'avc', quality: QUALITY_HIGH, keyFrameInterval: 2 })
+      output.addVideoTrack(source, { frameRate: 30 })
+      const sr = 48000
+      const audio = new AudioBufferSource({ codec: 'aac', quality: QUALITY_HIGH })
+      output.addAudioTrack(audio)
+      await output.start()
+      for (let i = 0; i < 60; i++) {
+        g.fillStyle = '#0b6b3a'; g.fillRect(0, 0, 1080, 1920)
+        g.fillStyle = '#fff'; g.beginPath(); g.arc(140 + i * 13, 960, 60, 0, Math.PI * 2); g.fill()
+        g.font = 'bold 90px sans-serif'; g.fillText('Total Football desktop probe', 60, 300)
+        await source.add(i / 30, 1 / 30)
+      }
+      const buf = new AudioBuffer({ length: sr * 2, numberOfChannels: 1, sampleRate: sr })
+      const d = buf.getChannelData(0)
+      for (let i = 0; i < d.length; i++) d[i] = 0.2 * Math.sin((2 * Math.PI * 440 * i) / sr)
+      await audio.add(buf)
+      await output.finalize()
+      const blob = new Blob([target.buffer], { type: 'video/mp4' })
+      report.file = { bytes: blob.size }
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'tf-desktop-probe.mp4'
+      a.click()
+    }
+  } catch (e) {
+    report.error = String(e && e.stack || e)
+  }
+  document.title = 'done'
+  window.__report = report
+</script>

@@ -1,0 +1,21 @@
+{
+  "name": "totalfootball-desktop",
+  "productName": "Total Football Studio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Total Football Studio for Mac and Windows: a thin shell over the live web studio.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p . && node scripts/copy.mjs",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && cross-env TF_START_URL=http://localhost:8888/studio/portal/ electron .",
+    "probe": "npm run build && electron . --probe"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3",
+    "mediabunny": "^1.53.1",
+    "typescript": "^5.6.0"
+  }
+}

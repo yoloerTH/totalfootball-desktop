@@ -1,0 +1,15 @@
+# P0 spike packaging only. Signing, notarization, NSIS, file association and the
+# updater feed arrive in P1/P3 (docs/DESKTOP.md §8 in totalfootball-web).
+appId: ai.naurra.totalfootball.desktop
+productName: Total Football Studio
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+mac:
+  target: dir
+  extendInfo:
+    NSMicrophoneUsageDescription: Total Football Studio uses the microphone to record your voice for Team Talk.
+win:
+  target: zip
