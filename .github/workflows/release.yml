@@ -20,15 +20,32 @@ permissions:
   contents: write
 
 jobs:
+  # One draft for both builds. Without it the Mac and Windows jobs each made a
+  # draft for the same tag at the same moment (v1.0.0, 2026-10-08); electron-builder
+  # uploads into a draft that already exists.
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="v$(node -p "require('./package.json').version")"
+          if [ -z "$(gh api "repos/$GITHUB_REPOSITORY/releases" -q ".[] | select(.tag_name==\"$V\") | .id")" ]; then
+            gh release create "$V" --repo "$GITHUB_REPOSITORY" --draft --title "${V#v}" --notes "" --target "$GITHUB_SHA"
+          fi
+
   build:
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
