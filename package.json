@@ -1,7 +1,7 @@
 {
   "name": "totalfootball-desktop",
   "productName": "Total Football Studio",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": true,
   "description": "Total Football Studio for Mac and Windows: a thin shell over the live web studio.",
   "main": "dist/main.js",
@@ -9,7 +9,12 @@
     "build": "tsc -p . && node scripts/copy.mjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && cross-env TF_START_URL=http://localhost:8888/studio/portal/ electron .",
-    "probe": "npm run build && electron . --probe"
+    "probe": "npm run build && electron . --probe",
+    "icons": "python3 scripts/icons.py ../totalfootball-ios/TotalFootball/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+    "pack:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never -c.mac.notarize=false",
+    "pack:win": "npm run build && electron-builder --win --publish never",
+    "release:mac": "npm run build && electron-builder --mac --publish always",
+    "release:win": "npm run build && electron-builder --win --publish always"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
@@ -17,5 +22,14 @@
     "electron-builder": "^26.15.3",
     "mediabunny": "^1.53.1",
     "typescript": "^5.6.0"
+  },
+  "author": {
+    "name": "Naurra",
+    "email": "hello@totalfootballstudio.com"
+  },
+  "homepage": "https://totalfootballstudio.com/desktop/",
+  "repository": "github:yoloerTH/totalfootball-desktop",
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

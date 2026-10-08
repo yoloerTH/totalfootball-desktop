@@ -1,17 +1,84 @@
-# P0 spike packaging only. Signing, notarization, NSIS, file association and the
-# updater feed arrive in P1/P3 (docs/DESKTOP.md §8 in totalfootball-web).
+# Total Football Studio packaging (totalfootball-web docs/DESKTOP.md §8).
+# Signing secrets come from the environment (CI: repo Actions secrets), never from here.
 appId: ai.naurra.totalfootball.desktop
 productName: Total Football Studio
+copyright: © Naurra
 directories:
   output: release
+  buildResources: build
 files:
   - dist/**/*
   - package.json
+asar: true
+
+# Sign-in comes back from the system browser on this scheme (main.ts handleSchemeUrl).
+protocols:
+  - name: Total Football Studio sign-in
+    schemes:
+      - ai.naurra.totalfootball.desktop
+
+# A board file opens in the app by double-click (main.ts handleFile -> portal import).
+fileAssociations:
+  - ext: tfs
+    name: Total Football board
+    description: Total Football Studio board
+    mimeType: application/x-total-football-system
+    role: Editor
+    icon: tfs
+
 mac:
-  target: dir
+  category: public.app-category.sports
   icon: build/icon.png
+  target:
+    - target: dmg
+      arch: universal
+    # The zip is what electron-updater installs on macOS.
+    - target: zip
+      arch: universal
+  artifactName: Total-Football-Studio-mac.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Developer ID signing from CSC_LINK / CSC_KEY_PASSWORD; notarization from
+  # APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER (or APPLE_ID +
+  # APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID). Skipped when those are absent.
+  notarize: true
   extendInfo:
     NSMicrophoneUsageDescription: Total Football Studio uses the microphone to record your voice for Team Talk.
+
+dmg:
+  title: Total Football Studio
+  contents:
+    - x: 150
+      y: 200
+    - x: 390
+      y: 200
+      type: link
+      path: /Applications
+
 win:
-  target: zip
   icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: Total-Football-Studio-Setup.${ext}
+  # v1 ships unsigned (decided 2026-10-08). Leave publisherName unset so the
+  # updater does not demand a signature it will never find.
+
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Total Football Studio
+  deleteAppDataOnUninstall: false
+
+# Installers and the update feed live on GitHub Releases of the public shell repo.
+# Fixed artifact names let /desktop/ link to releases/latest/download/<name>.
+publish:
+  provider: github
+  owner: yoloerTH
+  repo: totalfootball-desktop
+  releaseType: draft
