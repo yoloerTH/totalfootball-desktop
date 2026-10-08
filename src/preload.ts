@@ -10,10 +10,23 @@ type FileHandler = (name: string, bytes: Uint8Array) => void
 
 // One handler each; registering again replaces it. Registering also tells main
 // this page is listening, so a callback or file that arrived first is handed over.
+// Main keeps each until it hears `tf:taken`, so one that reaches a page with no
+// handler yet is not lost; it may come twice, hence `seen`.
 let onAuth: ((r: AuthResult) => void) | null = null
 let onFile: FileHandler | null = null
-ipcRenderer.on('tf:auth-callback', (_e: IpcRendererEvent, r: AuthResult) => onAuth?.(r))
-ipcRenderer.on('tf:open-file', (_e: IpcRendererEvent, f: { name: string; bytes: Uint8Array }) => onFile?.(f.name, f.bytes))
+const seen = new Set<string>()
+const take = (id: string) => {
+  if (seen.has(id)) return false
+  seen.add(id)
+  ipcRenderer.send('tf:taken', id)
+  return true
+}
+ipcRenderer.on('tf:auth-callback', (_e: IpcRendererEvent, { id, ...r }: AuthResult & { id: string }) => {
+  if (onAuth && take(id)) onAuth(r as AuthResult)
+})
+ipcRenderer.on('tf:open-file', (_e: IpcRendererEvent, f: { id: string; name: string; bytes: Uint8Array }) => {
+  if (onFile && take(f.id)) onFile(f.name, f.bytes)
+})
 
 contextBridge.exposeInMainWorld('tfDesktop', {
   version: info.version,
@@ -23,10 +36,10 @@ contextBridge.exposeInMainWorld('tfDesktop', {
   signIn: (authUrl: string): Promise<void> => ipcRenderer.invoke('tf:sign-in', authUrl),
   onAuthCallback: (cb: (r: AuthResult) => void) => {
     onAuth = cb
-    ipcRenderer.send('tf:listen', 'auth')
+    ipcRenderer.send('tf:listen')
   },
   onOpenFile: (cb: FileHandler) => {
     onFile = cb
-    ipcRenderer.send('tf:listen', 'files')
+    ipcRenderer.send('tf:listen')
   },
 })

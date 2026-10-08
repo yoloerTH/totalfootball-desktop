@@ -25,7 +25,8 @@ to Downloads. `Help > Show Log File` opens `desktop.log` in userData.
 - Sign-in with Google/Apple: the page asks `tfDesktop.signIn(url)`, main checks it
   is our Supabase authorize URL and opens the browser; Supabase returns to
   `ai.naurra.totalfootball.desktop://auth-callback?code=…`, main hands the code to
-  the page, which exchanges it (PKCE). The code is held until the page listens.
+  the page, which exchanges it (PKCE). The code (and a double-clicked .tfs) is
+  kept until the page's preload says a handler took it (`tf:taken`).
 - `.tfs` double-click: the bytes go to the portal's import (`tfDesktop.onOpenFile`).
 - Microphone for our origin only (Team Talk); every other permission denied.
 - Downloads become a native Save dialog.

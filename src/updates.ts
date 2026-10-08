@@ -22,6 +22,10 @@ export function initUpdates(log: Log) {
     if (byHand) void dialog.showMessageBox({ type: 'warning', message: 'Could not check for updates', detail: 'Check your connection and try again later.' })
     byHand = false
   })
+  autoUpdater.on('update-available', (u) => {
+    log('update available', u.version)
+    if (byHand) void dialog.showMessageBox({ type: 'info', message: `Downloading Total Football Studio ${u.version}`, detail: 'Keep working. You will be asked to restart when it is ready.' })
+  })
   autoUpdater.on('update-not-available', () => {
     if (byHand) void dialog.showMessageBox({ type: 'info', message: 'You have the latest version', detail: `Total Football Studio ${app.getVersion()}` })
     byHand = false

@@ -32,6 +32,8 @@ const FILE_EXTS = new Set(['.tfs'])
 const OWN_HOSTS = new Set(['totalfootballstudio.com', 'www.totalfootballstudio.com'])
 const start = new URL(START_URL)
 const isLocal = (u: URL) => u.hostname === 'localhost' || u.hostname === '127.0.0.1'
+/** The project the page signs in with. A dev server (TF_START_URL on localhost) may use any, e.g. the dev project. */
+const isSupabase = (u: URL) => u.hostname === SUPABASE_HOST || (isLocal(start) && u.hostname.endsWith('.supabase.co'))
 /** Our pages stay in the window. A dev server only when TF_START_URL points at one. */
 const isOwn = (u: URL) => (u.protocol === 'https:' && OWN_HOSTS.has(u.hostname)) || (isLocal(u) && u.host === start.host)
 /** Stripe's frames are inside our page; its 3-D Secure and bank steps may take the top frame and come back. */
@@ -154,20 +156,31 @@ function focus(): BrowserWindow {
 const NETWORK_ERRORS = new Set([-2, -7, -21, -100, -101, -102, -104, -105, -106, -109, -118, -130, -137, -138, -324])
 
 function guard(wc: WebContents) {
-  wc.on('will-navigate', (e, url) => {
-    const u = parse(url)
+  // A payment method that pays elsewhere (Revolut Pay, a bank) takes the top frame
+  // through Stripe to its own site and back to our return_url. From the moment
+  // the window goes to Stripe until it is back on our pages, any https address
+  // stays in the window, or the payment would finish in the browser.
+  let paying = false
+  wc.on('did-navigate', (_e, url) => { const u = parse(url); if (u && isOwn(u)) paying = false })
+  const stays = (u: URL) => {
+    if (isStripe(u)) paying = true
+    return isOwn(u) || isStripe(u) || (paying && u.protocol === 'https:')
+  }
+
+  wc.on('will-navigate', (e) => {
+    const u = parse(e.url)
     if (!u) return e.preventDefault()
-    if (isOwn(u) || isStripe(u)) return
-    if (u.protocol === 'file:' && url.split('?')[0] === pathToFileURL(offlinePage()).href) return
+    if (stays(u)) return
+    if (u.protocol === 'file:' && e.url.split('?')[0] === pathToFileURL(offlinePage()).href) return
     e.preventDefault()
-    openOutside(url)
+    openOutside(e.url)
   })
   // A server redirect away from us (to Google, say) gets the same rule.
-  wc.on('will-redirect', (e, url, _inPlace, isMain) => {
-    const u = parse(url)
-    if (!isMain || !u || isOwn(u) || isStripe(u)) return
+  wc.on('will-redirect', (e) => {
+    const u = parse(e.url)
+    if (!e.isMainFrame || (u && stays(u))) return
     e.preventDefault()
-    openOutside(url)
+    if (u) openOutside(e.url)
   })
   wc.setWindowOpenHandler(({ url }) => {
     const u = parse(url)
@@ -251,19 +264,21 @@ function sessionSetup() {
   })
 }
 
-// ─── sign-in callback and opened files: held until the page listens ───────────
+// ─── sign-in callback and opened files: kept until the page takes them ────────
+// Each is sent to the window when it arrives and again whenever a page starts
+// listening, and dropped only when the preload says a handler took it. A page
+// that is mid-navigation, signed out, or not the portal simply does not answer,
+// and the next page that listens gets it. The preload ignores an id it has seen.
 
 type AuthResult = { code: string } | { error: string }
-let pendingAuth: AuthResult | null = null
-const pendingFiles: { name: string; bytes: Uint8Array }[] = []
-const listening = { auth: new Set<number>(), files: new Set<number>() }
+let pendingAuth: (AuthResult & { id: string }) | null = null
+const pendingFiles: { id: string; name: string; bytes: Uint8Array }[] = []
 
 function flush() {
   const w = win
   if (!w || w.isDestroyed()) return
-  const id = w.webContents.id
-  if (pendingAuth && listening.auth.has(id)) { w.webContents.send('tf:auth-callback', pendingAuth); pendingAuth = null }
-  if (pendingFiles.length && listening.files.has(id)) for (const f of pendingFiles.splice(0)) w.webContents.send('tf:open-file', f)
+  if (pendingAuth) w.webContents.send('tf:auth-callback', pendingAuth)
+  for (const f of pendingFiles) w.webContents.send('tf:open-file', f)
 }
 
 /** Only `<scheme>://auth-callback?code=…` (or Supabase's error) is accepted. */
@@ -276,8 +291,8 @@ function handleSchemeUrl(raw: string) {
   const h = new URLSearchParams(u.hash.replace(/^#/, ''))
   const code = q.get('code')
   const error = q.get('error_description') || q.get('error') || h.get('error_description') || h.get('error')
-  if (code && /^[\w-]{8,200}$/.test(code)) pendingAuth = { code }
-  else if (error) pendingAuth = { error: error.slice(0, 300) }
+  if (code && /^[\w-]{8,200}$/.test(code)) pendingAuth = { id: randomUUID(), code }
+  else if (error) pendingAuth = { id: randomUUID(), error: error.slice(0, 300) }
   else return
   focus()
   flush()
@@ -287,14 +302,16 @@ function handleFile(path: string) {
   if (!FILE_EXTS.has(extname(path).toLowerCase())) return
   try {
     if (statSync(path).size > MAX_FILE_BYTES) return void dialog.showErrorBox('File too big', `${basename(path)} is too large to be a board file.`)
-    pendingFiles.push({ name: basename(path), bytes: new Uint8Array(readFileSync(path)) })
+    pendingFiles.push({ id: randomUUID(), name: basename(path), bytes: new Uint8Array(readFileSync(path)) })
   } catch (e) {
     log('open-file failed', String(e))
     return
   }
   const w = focus()
-  // The portal is the page that imports. Anywhere else, go there; it asks for the file when it mounts.
-  if (!listening.files.has(w.webContents.id)) void w.loadURL(new URL('/studio/portal/', START_URL).toString())
+  // The portal is the page that imports. Anywhere else, go there; it takes the file once signed in.
+  // A window with no URL yet is still loading START_URL, which is the portal.
+  const here = parse(w.webContents.getURL())
+  if (here && !(isOwn(here) && here.pathname.startsWith('/studio/portal'))) void w.loadURL(new URL('/studio/portal/', START_URL).toString())
   flush()
 }
 
@@ -308,28 +325,28 @@ function handleArgv(argv: string[]) {
 
 function ipc() {
   ipcMain.on('tf:info', (e) => { e.returnValue = info })
-  ipcMain.on('tf:listen', (e, what: unknown) => {
-    if (what !== 'auth' && what !== 'files') return
-    listening[what].add(e.sender.id)
-    flush()
+  ipcMain.on('tf:listen', (e) => { if (e.sender === win?.webContents) flush() })
+  ipcMain.on('tf:taken', (e, id: unknown) => {
+    if (e.sender !== win?.webContents || typeof id !== 'string') return
+    if (pendingAuth?.id === id) pendingAuth = null
+    const i = pendingFiles.findIndex((f) => f.id === id)
+    if (i >= 0) pendingFiles.splice(i, 1)
   })
   ipcMain.handle('tf:sign-in', async (e, url: unknown) => {
     const from = parse(e.senderFrame?.url ?? '')
     const u = typeof url === 'string' ? parse(url) : null
     // Only our own page may ask, and only for our Supabase project's authorize endpoint.
-    if (!from || !isOwn(from)) throw new Error('not allowed')
-    if (!u || u.protocol !== 'https:' || u.hostname !== SUPABASE_HOST || u.pathname !== '/auth/v1/authorize') throw new Error('not a sign-in address')
-    if (u.searchParams.get('redirect_to') !== `${SCHEME}://auth-callback`) throw new Error('wrong callback')
+    // A refusal is logged with its reason (Help > Show Log File).
+    const refuse = (why: string): never => {
+      log('sign-in refused', why, from?.origin ?? '', u ? u.origin + u.pathname : String(url).slice(0, 120))
+      throw new Error(why)
+    }
+    if (!from || !isOwn(from)) refuse('not allowed')
+    if (!u || u.protocol !== 'https:' || !isSupabase(u) || u.pathname !== '/auth/v1/authorize') return refuse('not a sign-in address')
+    if (u.searchParams.get('redirect_to') !== `${SCHEME}://auth-callback`) refuse('wrong callback')
     await shell.openExternal(u.toString())
   })
 }
-
-// A page load starts over: whatever listened before is gone.
-app.on('web-contents-created', (_e, wc) => {
-  const forget = () => { listening.auth.delete(wc.id); listening.files.delete(wc.id) }
-  wc.on('did-start-navigation', (d) => { if (d.isMainFrame && !d.isSameDocument) forget() })
-  wc.once('destroyed', forget)
-})
 
 // ─── menu ─────────────────────────────────────────────────────────────────────
 
