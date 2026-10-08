@@ -177,6 +177,8 @@ ipcMain.on('tf:info', (e) => {
 app.whenReady().then(() => {
   session.defaultSession.setUserAgent(userAgent())
   log('start', { version: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, url: START_URL, ua: session.defaultSession.getUserAgent() })
+  // Packaged builds get the icon from electron-builder; this covers `npm start`.
+  if (IS_MAC && !app.isPackaged) app.dock?.setIcon(join(__dirname, '..', 'build', 'icon.png'))
   menu()
   permissions()
   downloads()

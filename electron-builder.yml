@@ -9,7 +9,9 @@ files:
   - package.json
 mac:
   target: dir
+  icon: build/icon.png
   extendInfo:
     NSMicrophoneUsageDescription: Total Football Studio uses the microphone to record your voice for Team Talk.
 win:
   target: zip
+  icon: build/icon.ico
