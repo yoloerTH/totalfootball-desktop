@@ -15,7 +15,7 @@
     "pack:win": "npm run build && electron-builder --win --publish never",
     "release:mac": "npm run build && electron-builder --mac --publish always",
     "release:win": "npm run build && electron-builder --win --publish always",
-    "pack:win:zip": "npm run build && electron-builder --win zip --x64 --publish never"
+    "pack:win:zip": "npm run build && electron-builder --win zip --x64 --publish never -c.win.artifactName=Total-Football-Studio-win.zip"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
